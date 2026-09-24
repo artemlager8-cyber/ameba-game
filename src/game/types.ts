@@ -76,7 +76,30 @@ export interface DroppedItem {
   vx: number;
   vy: number;
   age: number;
+  pickupDelay: number; // Loot cannot be vacuumed during initial scatter
+  bounces: number;
+  onGround?: boolean;
   collected?: boolean;
+}
+
+export interface DeathEffect {
+  id: string;
+  enemyType: string;
+  name: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  width: number;
+  height: number;
+  color: string;
+  isBoss: boolean;
+  age: number;
+  maxDuration: number;
+  rotation: number;
+  rotSpeed: number;
+  facing: number;
+  scale: number;
 }
 
 export interface Particle {

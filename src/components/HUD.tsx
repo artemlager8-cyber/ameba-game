@@ -196,10 +196,16 @@ export const HUD: React.FC<HUDProps> = ({
                   <span className="text-emerald-400 font-sans">• ПКМ: Ставить</span>
                 </>
               )}
-              {selectedStack.item.type === 'weapon' && selectedStack.item.damage && (
+              {selectedStack.item.iconType === 'axe' && (
+                <>
+                  <span className="text-red-400 font-bold font-sans">🪓 {selectedStack.item.damage} рубящий урон</span>
+                  <span className="text-amber-300 font-sans">• ЛКМ: Рассекающий удар</span>
+                </>
+              )}
+              {selectedStack.item.type === 'weapon' && selectedStack.item.iconType !== 'axe' && selectedStack.item.damage && (
                 <span className="text-red-400">🗡 {selectedStack.item.damage} ур.</span>
               )}
-              {selectedStack.item.type === 'tool' && selectedStack.item.pickaxePower && (
+              {selectedStack.item.type === 'tool' && selectedStack.item.iconType !== 'axe' && selectedStack.item.pickaxePower && (
                 <span className="text-amber-400">⛏ {selectedStack.item.pickaxePower} мощь</span>
               )}
             </div>
@@ -230,13 +236,17 @@ export const HUD: React.FC<HUDProps> = ({
                 {/* Item Icon / Color block */}
                 {stack ? (
                   <>
-                    <div
-                      className="w-5 h-5 rounded-sm shadow-sm"
-                      style={{
-                        backgroundColor: stack.item.color,
-                        boxShadow: `0 0 6px ${stack.item.color}88`,
-                      }}
-                    />
+                    {stack.item.iconType === 'axe' ? (
+                      <span className="text-xl leading-none select-none drop-shadow">🪓</span>
+                    ) : (
+                      <div
+                        className="w-5 h-5 rounded-sm shadow-sm"
+                        style={{
+                          backgroundColor: stack.item.color,
+                          boxShadow: `0 0 6px ${stack.item.color}88`,
+                        }}
+                      />
+                    )}
                     {/* Count */}
                     {stack.count > 1 && (
                       <span className="absolute bottom-0.5 right-1 text-[11px] text-white font-mono font-bold drop-shadow leading-none">

@@ -664,6 +664,26 @@ class SoundManager {
     this.playTone(400, 'triangle', 0.15, 600, 0.7);
   }
 
+  public playAxeSwing() {
+    this.playTone(190, 'sawtooth', 0.16, 60, 0.65);
+  }
+
+  public playAxeHit() {
+    this.playTone(150, 'square', 0.14, 40, 0.85);
+  }
+
+  public playEnemyDeath(isBoss = false) {
+    if (isBoss) {
+      this.playTone(110, 'sawtooth', 0.6, 25, 1.3);
+    } else {
+      this.playTone(280, 'square', 0.18, 50, 0.75);
+    }
+  }
+
+  public playItemBounce() {
+    this.playTone(420 + Math.random() * 60, 'sine', 0.04, 240, 0.2);
+  }
+
   public playBossRoar() {
     this.playTone(90, 'sawtooth', 0.5, 40, 1.2);
   }

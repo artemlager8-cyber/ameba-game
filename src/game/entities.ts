@@ -1,5 +1,6 @@
 import { GRAVITY, ITEMS, TILE_SIZE } from './constants';
-import { DroppedItem, FloatingText, Item, Particle, Projectile, Rect } from './types';
+import { soundManager } from './audio';
+import { DeathEffect, DroppedItem, FloatingText, Item, Particle, Projectile, Rect } from './types';
 import { World } from './world';
 
 export type EnemyType = 'slime' | 'spore_bat' | 'cavern_crawler' | 'king_gel' | 'crystal_colossus';
@@ -31,6 +32,7 @@ export interface Enemy {
 
 export class EntityManager {
   public enemies: Enemy[] = [];
+  public deathEffects: DeathEffect[] = [];
   public droppedItems: DroppedItem[] = [];
   public particles: Particle[] = [];
   public floatingTexts: FloatingText[] = [];
@@ -404,38 +406,130 @@ export class EntityManager {
       }
     }
 
-    // 3. Update Dropped Items
+    // 3. Update Death Animations (dying mobs, flying corpse, soul motes)
+    for (let i = this.deathEffects.length - 1; i >= 0; i--) {
+      const d = this.deathEffects[i];
+      d.age += dt;
+
+      // Physics
+      d.x += d.vx;
+      d.y += d.vy;
+      d.vy += GRAVITY * 0.55;
+      d.vx *= 0.94;
+      d.rotation += d.rotSpeed * dt;
+
+      // Scale effect: swell then collapse
+      const progress = d.age / d.maxDuration;
+      if (progress < 0.35) {
+        d.scale = 1.0 + progress * 0.9;
+      } else {
+        d.scale = Math.max(0.05, 1.3 - (progress - 0.35) * 2.0);
+      }
+
+      // Emits smoke and spark trails while dying
+      if (Math.random() < 0.4) {
+        this.addParticle(
+          d.x + (Math.random() - 0.5) * d.width * 0.5,
+          d.y + (Math.random() - 0.5) * d.height * 0.5,
+          (Math.random() - 0.5) * 1.5,
+          -1.0 - Math.random() * 1.2,
+          d.color,
+          2.5,
+          350,
+          -0.02
+        );
+      }
+
+      // Soul wisp ascending
+      if (Math.random() < 0.15) {
+        this.addParticle(
+          d.x + (Math.random() - 0.5) * 8,
+          d.y,
+          (Math.random() - 0.5) * 0.8,
+          -1.8 - Math.random() * 0.8,
+          '#e0e7ff',
+          3.2,
+          500,
+          -0.04
+        );
+      }
+
+      if (d.age >= d.maxDuration) {
+        // Final pop explosion at death completion!
+        this.createSplatter(d.x, d.y, d.color, d.isBoss ? 35 : 12);
+        // Expanding ring particles
+        for (let a = 0; a < 8; a++) {
+          const ang = (a / 8) * Math.PI * 2;
+          this.addParticle(
+            d.x,
+            d.y,
+            Math.cos(ang) * 3.5,
+            Math.sin(ang) * 3.5,
+            '#ffffff',
+            2.5,
+            240,
+            0
+          );
+        }
+        this.deathEffects.splice(i, 1);
+      }
+    }
+
+    // 4. Update Dropped Items (Physical bouncing & manual pickup)
     for (let i = this.droppedItems.length - 1; i >= 0; i--) {
       const drop = this.droppedItems[i];
       drop.age += dt;
-
-      // Magnetic pull to player
-      const dx = playerCenter.x - drop.x;
-      const dy = playerCenter.y - drop.y;
-      const dist = Math.hypot(dx, dy);
-
-      if (dist < 80) {
-        drop.vx += (dx / dist) * 1.8;
-        drop.vy += (dy / dist) * 1.8;
-      } else {
-        drop.vy += GRAVITY * 0.8;
+      if (drop.pickupDelay > 0) {
+        drop.pickupDelay -= dt;
       }
 
+      // Physics
+      drop.vy += GRAVITY * 0.7;
       drop.x += drop.vx;
       drop.y += drop.vy;
-      drop.vx *= 0.9;
-      drop.vy *= 0.9;
 
-      // Tile floor collision
+      // Tile floor collision with bounce
       const tx = Math.floor(drop.x / TILE_SIZE);
       const ty = Math.floor((drop.y + 6) / TILE_SIZE);
       if (world.isSolid(tx, ty)) {
         drop.y = ty * TILE_SIZE - 6;
-        drop.vy = 0;
+        if (drop.vy > 1.2) {
+          drop.vy = -drop.vy * 0.42;
+          drop.vx *= 0.68;
+          drop.bounces++;
+          if (drop.bounces <= 2) {
+            soundManager.playItemBounce();
+          }
+        } else {
+          drop.vy = 0;
+          drop.vx *= 0.82;
+          drop.onGround = true;
+        }
+      } else {
+        drop.onGround = false;
+        drop.vx *= 0.96;
+      }
+
+      // Tile wall collision
+      const checkWallTx = Math.floor((drop.x + (drop.vx > 0 ? 5 : -5)) / TILE_SIZE);
+      const checkWallTy = Math.floor(drop.y / TILE_SIZE);
+      if (world.isSolid(checkWallTx, checkWallTy)) {
+        drop.vx = -drop.vx * 0.5;
+      }
+
+      // Manual Pickup: Only when initial scatter delay elapsed AND player approaches close!
+      const dx = playerCenter.x - drop.x;
+      const dy = playerCenter.y - drop.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (drop.pickupDelay <= 0 && dist < 30) {
+        // Draw smoothly towards player when in pickup zone
+        drop.vx += (dx / dist) * 2.8;
+        drop.vy += (dy / dist) * 2.8;
       }
     }
 
-    // 4. Update Particles
+    // 5. Update Particles
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.life += dt;
@@ -451,7 +545,7 @@ export class EntityManager {
       p.alpha = 1 - p.life / p.maxLife;
     }
 
-    // 5. Update Floating Texts
+    // 6. Update Floating Texts
     for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
       const ft = this.floatingTexts[i];
       ft.life += dt;
@@ -506,8 +600,8 @@ export class EntityManager {
     this.createSplatter(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2, enemy.color, 8);
 
     if (enemy.hp <= 0) {
-      // Enemy killed!
-      this.onEnemyDeath(enemy);
+      // Enemy killed! Trigger death animation and physical drops
+      this.triggerEnemyDeath(enemy, knockX, knockY);
       const index = this.enemies.indexOf(enemy);
       if (index !== -1) {
         this.enemies.splice(index, 1);
@@ -517,34 +611,95 @@ export class EntityManager {
     return false;
   }
 
-  private onEnemyDeath(enemy: Enemy) {
-    // Big death splatter
-    this.createSplatter(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2, enemy.color, enemy.isBoss ? 35 : 14);
+  public triggerEnemyDeath(enemy: Enemy, knockX: number, knockY: number) {
+    const isBoss = enemy.isBoss;
+    const duration = isBoss ? 1100 : 480;
 
-    // Drop loot
+    // 1. Create death animation effect
+    this.deathEffects.push({
+      id: this.getId('death'),
+      enemyType: enemy.type,
+      name: enemy.name,
+      x: enemy.x + enemy.width / 2,
+      y: enemy.y + enemy.height / 2,
+      vx: knockX * 0.75 + (Math.random() - 0.5) * 2,
+      vy: Math.min(-3.2, knockY * 0.75 - 2.5),
+      width: enemy.width,
+      height: enemy.height,
+      color: enemy.color,
+      isBoss,
+      age: 0,
+      maxDuration: duration,
+      rotation: 0,
+      rotSpeed: (Math.random() > 0.5 ? 1 : -1) * (0.018 + Math.random() * 0.015),
+      facing: enemy.facing,
+      scale: 1.0,
+    });
+
+    soundManager.playEnemyDeath(isBoss);
+
+    // 2. Initial biological splatter
+    this.createSplatter(
+      enemy.x + enemy.width / 2,
+      enemy.y + enemy.height / 2,
+      enemy.color,
+      isBoss ? 35 : 14
+    );
+
+    // 3. Ethereal spirit / soul ascending
+    for (let s = 0; s < (isBoss ? 6 : 2); s++) {
+      this.addParticle(
+        enemy.x + enemy.width / 2 + (Math.random() - 0.5) * 12,
+        enemy.y + enemy.height / 2,
+        (Math.random() - 0.5) * 1.2,
+        -1.8 - Math.random() * 1.2,
+        '#e0e7ff',
+        isBoss ? 4.5 : 3.0,
+        700,
+        -0.05
+      );
+    }
+
+    // 4. Physical loot explosion! Loot scatters into the world with physics
     for (const drop of enemy.dropItems) {
       const count = Math.floor(Math.random() * (drop.maxCount - drop.minCount + 1)) + drop.minCount;
       if (count > 0 && ITEMS[drop.itemId]) {
-        this.spawnDroppedItem(
-          ITEMS[drop.itemId],
-          count,
-          enemy.x + enemy.width / 2,
-          enemy.y + enemy.height / 2
-        );
+        for (let c = 0; c < count; c++) {
+          const spreadAngle = (Math.random() - 0.5) * 1.5 - Math.PI / 2;
+          const speed = 3.6 + Math.random() * 3.2;
+          this.spawnDroppedItem(
+            ITEMS[drop.itemId],
+            1,
+            enemy.x + enemy.width / 2,
+            enemy.y + enemy.height / 2 - 4,
+            Math.cos(spreadAngle) * speed + (knockX > 0 ? 1 : -1) * 1.2,
+            Math.sin(spreadAngle) * speed
+          );
+        }
       }
     }
   }
 
-  public spawnDroppedItem(item: Item, count: number, x: number, y: number) {
+  public spawnDroppedItem(
+    item: Item,
+    count: number,
+    x: number,
+    y: number,
+    vx = (Math.random() - 0.5) * 3.5,
+    vy = -3 - Math.random() * 2.5
+  ) {
     this.droppedItems.push({
       id: this.getId('drop'),
       item,
       count,
       x,
       y,
-      vx: (Math.random() - 0.5) * 3,
-      vy: -2 - Math.random() * 2,
+      vx,
+      vy,
       age: 0,
+      pickupDelay: 600, // Short delay so loot flies out before being picked up
+      bounces: 0,
+      onGround: false,
     });
   }
 

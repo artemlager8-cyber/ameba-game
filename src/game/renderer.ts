@@ -1,7 +1,7 @@
 import { BLOCKS, TILE_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from './constants';
 import { EntityManager, Enemy } from './entities';
 import { Player } from './player';
-import { BlockId } from './types';
+import { BlockId, DeathEffect, DroppedItem, Item } from './types';
 import { World } from './world';
 
 export class Renderer {
@@ -90,6 +90,11 @@ export class Renderer {
     // 9. Enemies & Bosses
     for (const enemy of entities.enemies) {
       this.renderEnemy(enemy);
+    }
+
+    // 9.5 Dying Enemies & Boss Death Animations
+    for (const death of entities.deathEffects) {
+      this.renderDeathEffect(death);
     }
 
     // 10. Player (Amoeba)
@@ -507,6 +512,11 @@ export class Renderer {
     const ctx = this.ctx;
     const item = selected.item;
 
+    if (item.iconType === 'axe') {
+      this.renderAxe(item, player.isAttacking, player.swingProgress);
+      return;
+    }
+
     if (item.type === 'weapon' || item.type === 'tool') {
       ctx.save();
       if (player.isAttacking) {
@@ -735,20 +745,257 @@ export class Renderer {
     }
   }
 
-  private renderDroppedItem(drop: { item: { color: string; name: string }; x: number; y: number; age: number }) {
+  private renderAxe(item: Item, isAttacking: boolean, progress: number) {
     const ctx = this.ctx;
-    const bounce = Math.sin(drop.age * 0.008) * 3;
+    ctx.save();
+
+    if (isAttacking) {
+      // Devastating overhead power chop arc
+      const startAngle = -Math.PI * 0.48;
+      const currentAngle = startAngle + progress * Math.PI * 0.96;
+
+      ctx.rotate(currentAngle);
+
+      // Cleave energy slash arc
+      const slashGrad = ctx.createLinearGradient(0, -30, 30, 30);
+      slashGrad.addColorStop(0, '#ffffff');
+      slashGrad.addColorStop(0.5, item.color || '#38bdf8');
+      slashGrad.addColorStop(1, 'transparent');
+
+      ctx.strokeStyle = slashGrad;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, 0, 26, startAngle, currentAngle);
+      ctx.stroke();
+
+      // Outer luminous wind shockwave
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, 31, startAngle + 0.1, currentAngle);
+      ctx.stroke();
+    } else {
+      // Idle held axe: ready at 25 degrees
+      ctx.translate(6, 2);
+      ctx.rotate(Math.PI * 0.18);
+    }
+
+    // --- DRAW DETAILED BATTLE AXE ---
+    const isCopper = item.id === 'copper_axe';
+    const isAbyss = item.id === 'abyss_axe';
+
+    // 1. Sturdy wooden handle (shaft)
+    ctx.fillStyle = isAbyss ? '#1e1b4b' : isCopper ? '#7c2d12' : '#78350f';
+    ctx.fillRect(4, -2.5, 20, 4);
+
+    // Dark grip wrap
+    ctx.fillStyle = isAbyss ? '#312e81' : isCopper ? '#431407' : '#451a03';
+    ctx.fillRect(8, -2.5, 7, 4);
+
+    // Pommel end cap / ring
+    ctx.fillStyle = isAbyss ? '#c084fc' : isCopper ? '#fb923c' : '#d97706';
+    ctx.fillRect(4, -3, 2, 5);
+
+    // 2. Axe Head Collar (reinforced eye socket)
+    ctx.fillStyle = isAbyss ? '#4c1d95' : isCopper ? '#9a3412' : '#334155';
+    ctx.fillRect(17, -4.5, 5, 8);
+
+    // 3. Forged Crescent Battleaxe Blade
+    const bladeColor = isAbyss ? '#8b5cf6' : isCopper ? '#ea580c' : '#64748b';
+    const edgeColor = isAbyss ? '#e0e7ff' : isCopper ? '#fed7aa' : '#f8fafc';
+
+    // Main crescent cutting blade body
+    ctx.fillStyle = bladeColor;
+    ctx.beginPath();
+    ctx.moveTo(19, -3.5);
+    ctx.lineTo(26, -11); // Upper horn
+    ctx.quadraticCurveTo(24, 0, 27, 9); // Curved bearded blade edge
+    ctx.lineTo(19, 3.5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Top armor-piercing wedge spike
+    ctx.fillStyle = isAbyss ? '#a855f7' : isCopper ? '#c2410c' : '#475569';
+    ctx.beginPath();
+    ctx.moveTo(22, -2.5);
+    ctx.lineTo(25.5, -2);
+    ctx.lineTo(22, -1.5);
+    ctx.fill();
+
+    // Razor-sharp cutting edge highlight
+    ctx.strokeStyle = edgeColor;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(26, -11);
+    ctx.quadraticCurveTo(24, 0, 27, 9);
+    ctx.stroke();
+
+    // Gleaming shine dot on blade
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(24.5, -4, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glowing rune on abyss axe
+    if (isAbyss) {
+      ctx.fillStyle = '#c084fc';
+      ctx.shadowColor = '#c084fc';
+      ctx.shadowBlur = 6;
+      ctx.fillRect(21, -1, 2, 2);
+      ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+  }
+
+  private renderDeathEffect(d: DeathEffect) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    ctx.rotate(d.rotation);
+    ctx.scale(d.scale * d.facing, d.scale);
+
+    const progress = d.age / d.maxDuration;
+    // Violent damage flash: flickers between pure white and red/original color
+    const isFlashing = Math.floor(d.age / 45) % 2 === 0;
+    const bodyColor = isFlashing ? '#ffffff' : (progress > 0.5 ? '#ef4444' : d.color);
+
+    ctx.globalAlpha = Math.max(0, 1 - Math.pow(progress, 2.5));
+
+    // Render dying silhouette
+    if (d.enemyType === 'slime' || d.enemyType === 'king_gel') {
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath();
+      const wobble = Math.sin(d.age * 0.05) * 4;
+      ctx.ellipse(0, 0, d.width / 2 + wobble, d.height / 2 - wobble, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bursting X eyes
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-4, -4); ctx.lineTo(-1, -1);
+      ctx.moveTo(-1, -4); ctx.lineTo(-4, -1);
+      ctx.moveTo(1, -4); ctx.lineTo(4, -1);
+      ctx.moveTo(4, -4); ctx.lineTo(1, -1);
+      ctx.stroke();
+    } else if (d.enemyType === 'spore_bat') {
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath();
+      ctx.arc(0, 0, 7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Flapping decaying wings
+      ctx.fillStyle = isFlashing ? '#ffffff' : '#a855f7';
+      ctx.beginPath();
+      ctx.moveTo(-3, 0); ctx.lineTo(-12, -8 + Math.sin(d.age * 0.06) * 5); ctx.lineTo(-4, 4);
+      ctx.moveTo(3, 0); ctx.lineTo(12, -8 + Math.sin(d.age * 0.06) * 5); ctx.lineTo(4, 4);
+      ctx.fill();
+    } else {
+      // General monster death silhouette
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath();
+      ctx.roundRect(-d.width / 2, -d.height / 2, d.width, d.height, 4);
+      ctx.fill();
+    }
+
+    // Expanding shockwave pulse ring
+    const ringRadius = progress * (d.isBoss ? 55 : 32);
+    ctx.strokeStyle = isFlashing ? '#ffffff' : d.color;
+    ctx.lineWidth = Math.max(1, 3 * (1 - progress));
+    ctx.beginPath();
+    ctx.arc(0, 0, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  private renderDroppedItem(drop: DroppedItem) {
+    const ctx = this.ctx;
+    const bounce = drop.onGround ? Math.sin(drop.age * 0.007) * 3 : 0;
     const px = drop.x;
     const py = drop.y + bounce;
 
     ctx.save();
-    ctx.fillStyle = drop.item.color || '#fbbf24';
-    ctx.shadowColor = drop.item.color;
-    ctx.shadowBlur = 6;
-    ctx.fillRect(px - 4, py - 4, 8, 8);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(px - 4, py - 4, 8, 8);
+
+    // Ground shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+    ctx.beginPath();
+    ctx.ellipse(px, drop.y + 7, 6, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glowing aura ring around dropped item
+    const auraGrad = ctx.createRadialGradient(px, py, 2, px, py, 14);
+    auraGrad.addColorStop(0, `${drop.item.color}88`);
+    auraGrad.addColorStop(1, 'transparent');
+    ctx.fillStyle = auraGrad;
+    ctx.beginPath();
+    ctx.arc(px, py, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Draw specific item icon
+    if (drop.item.iconType === 'axe') {
+      // Mini axe on ground
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(0.5);
+      // Handle
+      ctx.fillStyle = '#78350f';
+      ctx.fillRect(-6, -1, 12, 2);
+      // Head
+      ctx.fillStyle = drop.item.color || '#64748b';
+      ctx.beginPath();
+      ctx.moveTo(2, -4);
+      ctx.lineTo(6, -4);
+      ctx.lineTo(6, 4);
+      ctx.lineTo(2, 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.restore();
+    } else if (drop.item.iconType === 'drop') {
+      // Slime gel droplet
+      ctx.fillStyle = drop.item.color;
+      ctx.beginPath();
+      ctx.ellipse(px, py + 1, 5, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(px - 1.5, py - 1, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (drop.item.iconType === 'crystal' || drop.item.iconType === 'core') {
+      // Glowing crystal / core
+      ctx.fillStyle = drop.item.color;
+      ctx.beginPath();
+      ctx.moveTo(px, py - 5);
+      ctx.lineTo(px + 4, py);
+      ctx.lineTo(px, py + 5);
+      ctx.lineTo(px - 4, py);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    } else if (drop.item.blockId) {
+      // Miniature cube
+      ctx.fillStyle = drop.item.color;
+      ctx.fillRect(px - 4, py - 4, 8, 8);
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px - 4, py - 4, 8, 8);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+      ctx.fillRect(px - 3, py - 3, 6, 2);
+    } else {
+      // General shiny item gem
+      ctx.fillStyle = drop.item.color || '#fbbf24';
+      ctx.fillRect(px - 4, py - 4, 8, 8);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(px - 4, py - 4, 8, 8);
+    }
+
     ctx.restore();
   }
 

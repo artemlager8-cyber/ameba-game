@@ -3,7 +3,7 @@ import { BLOCKS, ITEMS, RECIPES, TILE_SIZE } from './constants';
 import { EntityManager } from './entities';
 import { Player } from './player';
 import { Renderer } from './renderer';
-import { Recipe } from './types';
+import { Item, Recipe } from './types';
 import { World } from './world';
 
 export interface EngineCallbacks {
@@ -221,14 +221,40 @@ export class GameEngine {
     const playerCenter = this.player.getCenter();
     const angle = Math.atan2(this.mouseWorld.y - playerCenter.y, this.mouseWorld.x - playerCenter.x);
 
-    // 1. If holding a weapon, trigger weapon slash attack
+    // 1. If holding an AXE: Devastating cleaving battleaxe chop!
+    if (selected?.item.iconType === 'axe') {
+      this.player.triggerAttack(angle, selected.item.attackSpeed || 320);
+      soundManager.playAxeSwing();
+      this.performAxeAttack(selected.item);
+
+      // Also if clicked on a tree or leaves block within reach, instantly chop it down!
+      const tx = this.mouseWorld.tx;
+      const ty = this.mouseWorld.ty;
+      const block = this.world.getBlock(tx, ty);
+      if ((block === 'wood' || block === 'leaves') && this.world.isInReach(playerCenter.x, playerCenter.y, tx, ty)) {
+        const blockCfg = BLOCKS[block];
+        this.world.setBlock(tx, ty, 'air');
+        soundManager.playBlockBreak();
+        if (blockCfg?.dropItemId && ITEMS[blockCfg.dropItemId]) {
+          this.entities.spawnDroppedItem(
+            ITEMS[blockCfg.dropItemId],
+            blockCfg.dropCount || 1,
+            tx * TILE_SIZE + 12,
+            ty * TILE_SIZE + 12
+          );
+        }
+      }
+      return;
+    }
+
+    // 2. If holding a sword or other weapon, trigger weapon slash attack
     if (selected?.item.type === 'weapon') {
       this.player.triggerAttack(angle, selected.item.attackSpeed || 280);
       this.performWeaponAttack(selected.item);
       return;
     }
 
-    // 2. If holding a BLOCK, can hit enemies with the block!
+    // 3. If holding a BLOCK, can hit enemies with the block!
     if (selected?.item.blockId) {
       const blockCfg = BLOCKS[selected.item.blockId];
       // Harder blocks deal more damage! Dirt: 8, Wood: 10, Stone: 13, Ore: 15, Crystal: 18, Abyss Stone: 24
@@ -346,6 +372,45 @@ export class GameEngine {
         this.player.consumeSelectedItem(1);
         soundManager.playBossRoar();
         this.callbacks.onNotification?.('Пробудился Кристальный Колосс!');
+      }
+    }
+  }
+
+  private performAxeAttack(axe: Item) {
+    const playerCenter = this.player.getCenter();
+    const range = axe.range || 58;
+    const damage = axe.damage || 22;
+
+    for (const enemy of this.entities.enemies) {
+      const ec = { x: enemy.x + enemy.width / 2, y: enemy.y + enemy.height / 2 };
+      const dist = Math.hypot(ec.x - playerCenter.x, ec.y - playerCenter.y);
+
+      if (dist <= range + enemy.width / 2) {
+        const dirToEnemy = ec.x > playerCenter.x ? 1 : -1;
+        if (dirToEnemy === this.player.facing || dist < 32) {
+          // Massive axe cleave knockback
+          const knockX = dirToEnemy * 6.5;
+          const killed = this.entities.damageEnemy(enemy, damage, knockX, -4.5);
+          soundManager.playAxeHit();
+
+          // Axe chop impact sparks & wood splinters
+          for (let p = 0; p < 12; p++) {
+            this.entities.addParticle(
+              ec.x,
+              ec.y,
+              (Math.random() - 0.5) * 6 + dirToEnemy * 3,
+              (Math.random() - 0.5) * 5 - 2,
+              p % 2 === 0 ? '#fbbf24' : axe.color,
+              3.2,
+              320
+            );
+          }
+
+          if (killed && enemy.isBoss) {
+            soundManager.playBossDefeat();
+            this.callbacks.onVictory?.(enemy.name);
+          }
+        }
       }
     }
   }
@@ -525,15 +590,31 @@ export class GameEngine {
       }
     }
 
-    // 7. Magnet & Collect Dropped Items
+    // 7. Collect Dropped Items (Player approaches to pick them up)
     for (let i = this.entities.droppedItems.length - 1; i >= 0; i--) {
       const drop = this.entities.droppedItems[i];
+      if (drop.pickupDelay > 0) continue; // Must scatter first
+
       const dist = Math.hypot(drop.x - playerCenter.x, drop.y - playerCenter.y);
-      if (dist < 18) {
+      if (dist < 22) {
         const added = this.player.addItem(drop.item, drop.count);
         if (added) {
           soundManager.playPickup();
           this.entities.addFloatingText(`+${drop.count} ${drop.item.name}`, drop.x, drop.y - 12, drop.item.color);
+
+          // Collection sparkles
+          for (let s = 0; s < 5; s++) {
+            this.entities.addParticle(
+              drop.x,
+              drop.y,
+              (Math.random() - 0.5) * 3,
+              (Math.random() - 0.5) * 3 - 1,
+              drop.item.color,
+              2.5,
+              220,
+              0.05
+            );
+          }
           this.entities.droppedItems.splice(i, 1);
         }
       }

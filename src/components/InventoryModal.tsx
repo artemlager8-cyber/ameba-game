@@ -108,10 +108,14 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({ engine, onClose 
                           </span>
                           {stack && (
                             <>
-                              <div
-                                className="w-5 h-5 rounded-sm"
-                                style={{ backgroundColor: stack.item.color }}
-                              />
+                              {stack.item.iconType === 'axe' ? (
+                                <span className="text-base select-none">🪓</span>
+                              ) : (
+                                <div
+                                  className="w-5 h-5 rounded-sm"
+                                  style={{ backgroundColor: stack.item.color }}
+                                />
+                              )}
                               {stack.count > 1 && (
                                 <span className="absolute bottom-0.5 right-1 text-[10px] text-white font-mono font-bold">
                                   {stack.count}
@@ -145,10 +149,14 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({ engine, onClose 
                         >
                           {stack && (
                             <>
-                              <div
-                                className="w-5 h-5 rounded-sm"
-                                style={{ backgroundColor: stack.item.color }}
-                              />
+                              {stack.item.iconType === 'axe' ? (
+                                <span className="text-base select-none">🪓</span>
+                              ) : (
+                                <div
+                                  className="w-5 h-5 rounded-sm"
+                                  style={{ backgroundColor: stack.item.color }}
+                                />
+                              )}
                               {stack.count > 1 && (
                                 <span className="absolute bottom-0.5 right-1 text-[10px] text-white font-mono font-bold">
                                   {stack.count}
@@ -240,10 +248,14 @@ export const InventoryModal: React.FC<InventoryModalProps> = ({ engine, onClose 
                     >
                       <div className="flex items-start gap-2">
                         <div
-                          className="w-8 h-8 rounded border border-white/20 flex items-center justify-center flex-shrink-0"
+                          className="w-8 h-8 rounded border border-white/20 flex items-center justify-center flex-shrink-0 text-base"
                           style={{ backgroundColor: resItem.color }}
                         >
-                          <Sparkles className="w-4 h-4 text-white/80" />
+                          {resItem.iconType === 'axe' ? (
+                            <span className="select-none leading-none">🪓</span>
+                          ) : (
+                            <Sparkles className="w-4 h-4 text-white/80" />
+                          )}
                         </div>
                         <div className="flex-1">
                           <div className="text-xs font-bold text-slate-200">
